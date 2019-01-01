@@ -42,7 +42,7 @@ int main()
 	cout.precision(15);
 
 	function_minimizer_ga _function_minimizer_ga(&cross_in_tray_func, -10.0, 10.0);
-	_function_minimizer_ga.setParameters(100, 1000, 0.75, 0.01, -1, true);
+	_function_minimizer_ga.setParameters(100, 1000, 0.65, 0.005, -1, true);
 	_function_minimizer_ga.run();
 	_function_minimizer_ga.displaySettings();
 	_function_minimizer_ga.displayResults();

@@ -41,15 +41,14 @@ int main()
 	cout.precision(15);
 
 	function_minimizer_ga _function_minimizer_ga(&schaffer_n4_func, -100, 100);
-	_function_minimizer_ga.setParameters(100, 2000, 0.75, 0.02, -1, true);
+	_function_minimizer_ga.setParameters(100, 2000, 0.5, 0.025, -1, true);
 	_function_minimizer_ga.run();
 	_function_minimizer_ga.displaySettings();
 	_function_minimizer_ga.displayResults();
 
 	// display the actual function value after running GA
 	cout<<"===================================="<<endl;
-	function_variables best_value =
-			_function_minimizer_ga.getBestSolution();
+	function_variables best_value = _function_minimizer_ga.getBestSolution();
 	cout<<"Schaffer N.4 function minimum value was found at"<<endl<<
 			"x = "<<best_value.x<<", y = "<<best_value.y<<endl<<
 			"value = "<<schaffer_n4_func(best_value.x, best_value.y)<<endl;

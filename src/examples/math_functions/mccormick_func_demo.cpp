@@ -37,8 +37,8 @@ int main()
 	// set precision for display to 15 decimal places
 	cout.precision(15);
 
-	function_minimizer_ga _function_minimizer_ga(&mccormick_func, -1.54, -3, 4, 4);
-	_function_minimizer_ga.setParameters(100, 1000, 0.8, 0.03, -1, true);
+	function_minimizer_ga _function_minimizer_ga(&mccormick_func, -1.5, -3, 4, 4);
+	_function_minimizer_ga.setParameters(100, 1000, 0.9, 0.005, -1, true);
 	_function_minimizer_ga.run();
 	_function_minimizer_ga.displaySettings();
 	_function_minimizer_ga.displayResults();
