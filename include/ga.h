@@ -44,7 +44,7 @@ namespace ga
  * 2. Allele mutation probability - posterior probability with which an allele is selected in
  * selected individual for mutation
  *
- * ELITISM - is true by default.
+ * ELITISM - is true by default. Random selection strategy is used for elite replacement.
  *
  * STOPPING CRITERION - when GA has run for set maximum number of generations.
  * This criterion can be overriden in a derived class. Examples of other criteria are :
@@ -147,7 +147,6 @@ protected:
 	double gen_best_fitness = - DBL_MAX;
 
 	// current generation minimum fitness
-	T * gen_min_fit_indivP = NULL;
 	double gen_min_fitness = DBL_MAX;
 
 	double avg_fitness = 0;
@@ -200,8 +199,13 @@ private:
 	mt19937 crossover_random_engine;
 	// individual mutation random engine
 	mt19937 mutation_random_engine;
+	// elite replacement random engine
+	mt19937 replacement_random_engine;
+
 	// generate uniformly distributed double value between 0 and 1
-	uniform_real_distribution<double> _uniform_distribution{0, 1};
+	uniform_real_distribution<double> _uniform_distribution_0_1;
+	// generate uniformly distributed int value between 0 and (POPULATION_SIZE - 1)
+	uniform_int_distribution<int> _uniform_pop_distribution;
 };
 
 /**
@@ -278,7 +282,7 @@ void simple_ga<T>::run()
 		new_indivP = &next_gen_population[0];
 		for(size_t i = 0; i < POPULATION_SIZE; i++)
 		{
-			*new_indivP = _uniform_distribution(crossover_random_engine) <= CROSSOVER_PROBABILITY
+			*new_indivP = _uniform_distribution_0_1(crossover_random_engine) <= CROSSOVER_PROBABILITY
 					? crossOver(selectCrossOverParents()) : population[i];
 
 			tryMutation(*new_indivP);
@@ -309,6 +313,14 @@ void simple_ga<T>::initializeRandomPopulation()
 		population.push_back(indiv);
 		this->displayIndiv(indiv);
 	}
+
+	// initialize uniform distributions
+	_uniform_distribution_0_1 =
+		uniform_real_distribution<double> (0, 1);
+
+	_uniform_pop_distribution =
+		uniform_int_distribution<int> (0, POPULATION_SIZE - 1);
+
 
 	fitness_sum = 0;
 	// initialize best and min fitness for this generation
@@ -359,35 +371,66 @@ void simple_ga<T>::copyNextGeneration(T * new_indivP)
 		indivP++;
 	}
 
-	if(ELITISM) // replace min fitness individual with previous best individual
+	// replace randomly selected individual with previous best individual
+	if(ELITISM)
 	{
-		// adjust fitness sum for replacement individual
-		fitness_sum += prev_best_fitness - gen_min_fitness;
+		// generate a random index for replacement
+		int random_replacement_index =
+			_uniform_pop_distribution(replacement_random_engine);
 
-		// replace minimum fitness individual with
-		// best known individual in previous generation
-		*gen_min_fit_indivP = prev_best_individual;
-		fitness_map[gen_min_fit_indivP] = prev_best_fitness;
+		T * replacement_indivP = &population[ random_replacement_index ];
+		double replacement_indiv_fitness = fitness_map[ replacement_indivP ];
 
-		// update best fitness after replacement
-		if(gen_best_fitness < prev_best_fitness)
+		// replace randomly selected individual with
+		// best known individual of previous generation
+		*replacement_indivP = prev_best_individual;
+		fitness_map[replacement_indivP] = prev_best_fitness;
+
+		// adjust fitness sum for replaced individual
+		fitness_sum += prev_best_fitness - replacement_indiv_fitness;
+
+		// update max fitness if replaced
+		if(replacement_indiv_fitness == gen_best_fitness)
 		{
-			gen_best_fitness = prev_best_fitness;
-			gen_best_individual = prev_best_individual;
-		}
+			indivP = &population[0];
+			double t_fitness = fitness_map [ indivP ];
 
-		// update min fitness after replacement
-		gen_min_fitness = DBL_MAX;
-		indivP = &population[0];
-		for(size_t i = 0; i < POPULATION_SIZE; i++)
-		{
-			if(fitness_map[indivP] < gen_min_fitness)
-			{
-				gen_min_fitness = fitness_map[indivP];
-				gen_min_fit_indivP = indivP;
-			}
+			gen_best_individual = *indivP;
+			gen_best_fitness = t_fitness;
 			indivP++;
+
+			for(size_t i = 1; i < POPULATION_SIZE; i++)
+			{
+				t_fitness = fitness_map [ indivP ];
+				if(t_fitness >= gen_best_fitness)
+				{
+					gen_best_fitness = t_fitness;
+					gen_best_individual = *indivP;
+				}
+				indivP++;
+			}
 		}
+
+		// update min fitness if replaced
+		if(replacement_indiv_fitness == gen_min_fitness)
+		{
+			indivP = &population[0];
+			double t_fitness = fitness_map [ indivP ];
+
+			gen_min_fitness = t_fitness;
+			indivP++;
+
+			for(size_t i = 1; i < POPULATION_SIZE; i++)
+			{
+				t_fitness = fitness_map [ indivP ];
+				if(t_fitness <= gen_min_fitness)
+				{
+					gen_min_fitness = t_fitness;
+				}
+				indivP++;
+			}
+		}
+
 	}
 
 	// update best known result so far
@@ -406,12 +449,11 @@ void simple_ga<T>::copyNextGeneration(T * new_indivP)
 template<typename T>
 void simple_ga<T>::updateCurrentGenMinMaxFitness(T * indivP, double t_fitness)
 {
-	if(t_fitness < gen_min_fitness)
+	if(t_fitness <= gen_min_fitness)
 	{
 		gen_min_fitness = t_fitness;
-		gen_min_fit_indivP = indivP;
 	}
-	if(t_fitness > gen_best_fitness)
+	if(t_fitness >= gen_best_fitness)
 	{
 		gen_best_fitness = t_fitness;
 		gen_best_individual = *indivP;
@@ -496,7 +538,7 @@ T * simple_ga<T>::rouletteWheelSelection(const T * already_selectedP)
 {
 	T * parent = NULL;
 	T * indivP = &population[0];
-	double random_value = _uniform_distribution(roulette_random_engine);
+	double random_value = _uniform_distribution_0_1(roulette_random_engine);
 	for(size_t i = 0; i < POPULATION_SIZE; i++)
 	{
 		// first cumulative fitness that exceeds random value
@@ -567,7 +609,7 @@ T * simple_ga<T>::selectSimilarFit(const T * indivP)
 template<typename T>
 void simple_ga<T>::tryMutation(T & indiv)
 {
-	if(_uniform_distribution(mutation_random_engine)
+	if(_uniform_distribution_0_1(mutation_random_engine)
 			<= MUTATION_PROBABILITY)
 	{
 		// try mutation on this individual
