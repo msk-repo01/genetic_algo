@@ -57,9 +57,9 @@ namespace ga
  * =========================================
  * Following methods must be implemented in derived class after parameter instantiation:
  * 1. T getRandomIndiv() - generate a random individual
- * 2. void displayIndiv(const T indiv) - display an individual
- * 3. double getFitness(const T indiv) - get fitness of an individual
- * 4. T crossOver(const crossoverParents crossoverParents) - create an offspring from two parents
+ * 2. void displayIndiv(const T & indiv) - display an individual
+ * 3. double getFitness(const T & indiv) - get fitness of an individual
+ * 4. T crossOver(const crossoverParents & crossoverParents) - create an offspring from two parents
  * 5. void mutate(T & indiv) - mutate an individual
  *
  * *** Additionally, method that can optionally be overridden ***
@@ -132,9 +132,13 @@ protected:
 		const T * parent2 = NULL;
 	};
 
-	vector<T> population;
-	map<const T *, double> fitness_map;
-	map<const T *, double> cumulative_map;
+	T **population = NULL;
+
+	// typedef for mapping individual T to its fitness
+	typedef map<const T *, double> fitness_map_type;
+
+	fitness_map_type * fitness_mapP = NULL;
+	fitness_map_type * cumulative_mapP = NULL;
 
 	int num_of_generations = -1;
 
@@ -153,14 +157,14 @@ protected:
 	double fitness_sum = 0;
 
 	void initializeRandomPopulation();
-	void copyNextGeneration(T * new_indivP);
-	void updateCurrentGenMinMaxFitness(T * indivP, double t_fitness);
+	void copyNextGeneration(const T * const * const next_genP);
+	void updateCurrentGenMinMaxFitness(const T * const indivP, const double t_fitness);
 	bool resetCumulativeMap();
 
 	crossoverParents selectCrossOverParents();
-	T * selectAParent(const T * already_selectedP);
-	T * rouletteWheelSelection(const T * already_selectedP);
-	T * selectSimilarFit(const T * indivP);
+	T * selectAParent(const T * const already_selectedP);
+	T * rouletteWheelSelection(const T * const already_selectedP);
+	T * selectSimilarFit(const T * const indivP);
 
 	void tryMutation(T & indiv);
 
@@ -188,10 +192,46 @@ protected:
 	// mutation operation on individual of type T
 	virtual void mutate(T & indiv) = 0;
 
-	// optional destructor
-	virtual ~simple_ga() {};
+	// destructor for simple ga
+	virtual ~simple_ga()
+	{
+		if(fitness_mapP != NULL)
+		{
+			delete fitness_mapP;
+			fitness_mapP = NULL;
+		}
+		if(cumulative_mapP != NULL)
+		{
+			delete cumulative_mapP;
+			cumulative_mapP = NULL;
+		}
+
+		if(population != NULL)
+		{
+			for(size_t i = 0 ; i < POPULATION_SIZE; i++)
+			{
+				if(*(population + i)  != NULL)
+				{
+					delete *(population + i);
+					*(population + i) = NULL;
+				}
+			}
+
+			delete [ ] population;
+			population = NULL;
+		}
+	}
+
+	// constructor for simple ga
+	simple_ga() { }
 
 private:
+	// make class non-copyable for now since its internal state
+	// gets reset before each ga run.
+	// In later version this may change when ga runs without resetting
+	// its member variables i.e. it can run from any given state
+	simple_ga(const simple_ga & _simple_ga);
+	simple_ga & operator=(const simple_ga & _simple_ga);
 
 	// Roulette wheel random engine
 	mt19937 roulette_random_engine;
@@ -267,32 +307,39 @@ void simple_ga<T>::run()
 	initializeRandomPopulation();
 
 	// atleast 2 indiv required
-	if(population.size() < 2)
+	if(POPULATION_SIZE < 2)
 	{
 		cerr<<"error cannot perform GA for population size < 2"<<endl;
 		return;
 	}
 
+	// allocate memory for next generation
+	T ** next_gen_population = new T * [ POPULATION_SIZE ];
+	for(size_t i = 0 ; i < POPULATION_SIZE; i++)
+	{
+		*(next_gen_population + i) = new T;
+	}
+
 	num_of_generations = 0;
-	T * new_indivP = NULL;
-	vector<T> next_gen_population(POPULATION_SIZE);
+	T * next_gen_indivP = NULL;
 	while(!shouldStop())
 	{
 		// create new individuals for next generation
-		new_indivP = &next_gen_population[0];
 		for(size_t i = 0; i < POPULATION_SIZE; i++)
 		{
-			*new_indivP = _uniform_distribution_0_1(crossover_random_engine) <= CROSSOVER_PROBABILITY
-					? crossOver(selectCrossOverParents()) : population[i];
+			next_gen_indivP = *(next_gen_population + i);
 
-			tryMutation(*new_indivP);
+			*next_gen_indivP = _uniform_distribution_0_1(crossover_random_engine)
+				<= CROSSOVER_PROBABILITY
+				? crossOver(selectCrossOverParents())
+				: *(*(population + i));
 
-			new_indivP++;
+			tryMutation(*next_gen_indivP);
 		}
 
 		// copy new individuals as current population
 		// and update fitness values
-		copyNextGeneration(&next_gen_population[0]);
+		copyNextGeneration(next_gen_population);
 
 		num_of_generations++;
 
@@ -300,18 +347,50 @@ void simple_ga<T>::run()
 		cout<<"generation : "<<num_of_generations
 				<<" best fitness : "<<best_fitness<<endl;
 	}
+
+	// free memory for next generation
+	for(size_t i = 0 ; i < POPULATION_SIZE; i++)
+	{
+		delete *(next_gen_population + i);
+	}
+
+	delete [ ] next_gen_population;
+
 }
+
 
 template<typename T>
 void simple_ga<T>::initializeRandomPopulation()
 {
-	T indiv;
+	// allocate memory if not initialized yet
+	if(population == NULL)
+	{
+		population = new T* [ POPULATION_SIZE ];
+
+		// initialize each member to a new T *
+		for(size_t i = 0 ; i < POPULATION_SIZE; i++)
+		{
+			*(population + i) = new T;
+		}
+	}
+
+	if(fitness_mapP == NULL)
+	{
+		fitness_mapP = new fitness_map_type;
+	}
+
+	if(cumulative_mapP == NULL)
+	{
+		cumulative_mapP = new fitness_map_type;
+	}
+
+	T * indivP;
 	cout<<"generating random individuals.."<<endl;
 	for(size_t i = 0 ; i < POPULATION_SIZE; i++)
 	{
-		indiv = getRandomIndiv();
-		population.push_back(indiv);
-		this->displayIndiv(indiv);
+		indivP = *(population + i);
+		*(indivP) = getRandomIndiv();
+		this->displayIndiv(*indivP);
 	}
 
 	// initialize uniform distributions
@@ -327,15 +406,15 @@ void simple_ga<T>::initializeRandomPopulation()
 	gen_best_fitness = - DBL_MAX;
 	gen_min_fitness = DBL_MAX;
 	double t_fitness;
-	T * indivP = &population[0];
 	for(size_t i = 0; i < POPULATION_SIZE; i++)
 	{
-		indiv = *indivP;
-		t_fitness = getFitness(indiv);
-		fitness_map.insert(pair<T*, double>(indivP, t_fitness));
+		indivP = *(population + i);
+
+		t_fitness = getFitness(*indivP);
+		(*fitness_mapP)[indivP] = t_fitness;
+
 		fitness_sum += t_fitness;
 		updateCurrentGenMinMaxFitness(indivP, t_fitness);
-		indivP++;
 	}
 
 	best_fitness = gen_best_fitness;
@@ -346,29 +425,30 @@ void simple_ga<T>::initializeRandomPopulation()
 	resetCumulativeMap();
 }
 
+
 template<typename T>
-void simple_ga<T>::copyNextGeneration(T * new_indivP)
+void simple_ga<T>::copyNextGeneration(const T * const * const next_genP)
 {
 	// store last generation best fitness
-	double prev_best_fitness = gen_best_fitness;
-	T prev_best_individual = gen_best_individual;
+	const double prev_gen_best_fitness = gen_best_fitness;
+	const T prev_gen_best_individual = gen_best_individual;
 
-	fitness_sum = 0;
 	// initialize best and min fitness for this generation
 	gen_best_fitness = - DBL_MAX;
 	gen_min_fitness = DBL_MAX;
 
 	double t_fitness;
-	T * indivP = &population[0];
+	T * indivP;
+	fitness_sum = 0;
 	for(size_t i = 0; i < POPULATION_SIZE; i++)
 	{
-		*indivP = *new_indivP;
+		indivP = *(population + i);
+
+		*(indivP) = *( *(next_genP + i) );
 		t_fitness = getFitness(*indivP);
-		fitness_map[indivP] = t_fitness;
+		fitness_mapP->find(indivP)->second = t_fitness;
 		fitness_sum += t_fitness;
 		updateCurrentGenMinMaxFitness(indivP, t_fitness);
-		new_indivP++;
-		indivP++;
 	}
 
 	// replace randomly selected individual with previous best individual
@@ -378,56 +458,57 @@ void simple_ga<T>::copyNextGeneration(T * new_indivP)
 		int random_replacement_index =
 			_uniform_pop_distribution(replacement_random_engine);
 
-		T * replacement_indivP = &population[ random_replacement_index ];
-		double replacement_indiv_fitness = fitness_map[ replacement_indivP ];
+		T * const replacement_indivP = *(population + random_replacement_index);
+		const double replacement_indiv_fitness =
+			fitness_mapP->find(replacement_indivP)->second;
 
 		// replace randomly selected individual with
 		// best known individual of previous generation
-		*replacement_indivP = prev_best_individual;
-		fitness_map[replacement_indivP] = prev_best_fitness;
+		*replacement_indivP = prev_gen_best_individual;
+		fitness_mapP->find(replacement_indivP)->second = prev_gen_best_fitness;
 
 		// adjust fitness sum for replaced individual
-		fitness_sum += prev_best_fitness - replacement_indiv_fitness;
+		fitness_sum += prev_gen_best_fitness - replacement_indiv_fitness;
 
 		// update max fitness if replaced
 		if(replacement_indiv_fitness == gen_best_fitness)
 		{
-			indivP = &population[0];
-			double t_fitness = fitness_map [ indivP ];
+			indivP = *(population + 0);
+			double t_fitness = fitness_mapP->find(indivP)->second;
 
 			gen_best_individual = *indivP;
 			gen_best_fitness = t_fitness;
-			indivP++;
 
 			for(size_t i = 1; i < POPULATION_SIZE; i++)
 			{
-				t_fitness = fitness_map [ indivP ];
+				indivP= *(population + i);
+				t_fitness = fitness_mapP->find(indivP)->second;
+
 				if(t_fitness >= gen_best_fitness)
 				{
-					gen_best_fitness = t_fitness;
 					gen_best_individual = *indivP;
+					gen_best_fitness = t_fitness;
 				}
-				indivP++;
 			}
 		}
 
 		// update min fitness if replaced
 		if(replacement_indiv_fitness == gen_min_fitness)
 		{
-			indivP = &population[0];
-			double t_fitness = fitness_map [ indivP ];
+			indivP = *(population + 0);
+			double t_fitness = fitness_mapP->find(indivP)->second;
 
 			gen_min_fitness = t_fitness;
-			indivP++;
 
 			for(size_t i = 1; i < POPULATION_SIZE; i++)
 			{
-				t_fitness = fitness_map [ indivP ];
+				indivP= *(population + i);
+				t_fitness = fitness_mapP->find(indivP)->second;
+
 				if(t_fitness <= gen_min_fitness)
 				{
 					gen_min_fitness = t_fitness;
 				}
-				indivP++;
 			}
 		}
 
@@ -447,16 +528,18 @@ void simple_ga<T>::copyNextGeneration(T * new_indivP)
 }
 
 template<typename T>
-void simple_ga<T>::updateCurrentGenMinMaxFitness(T * indivP, double t_fitness)
+void simple_ga<T>::updateCurrentGenMinMaxFitness(const T * const indivP,
+						const double t_fitness)
 {
 	if(t_fitness <= gen_min_fitness)
 	{
 		gen_min_fitness = t_fitness;
 	}
+
 	if(t_fitness >= gen_best_fitness)
 	{
-		gen_best_fitness = t_fitness;
 		gen_best_individual = *indivP;
+		gen_best_fitness = t_fitness;
 	}
 }
 
@@ -465,46 +548,52 @@ bool simple_ga<T>::resetCumulativeMap()
 {
 	if(gen_min_fitness == gen_best_fitness)
 	{
-		cerr<<"generation : "<<num_of_generations<<" both min & max fitness are equal"<<endl;
+		cerr<<"generation : "<<num_of_generations
+			<<" both min & max fitness are equal"<<endl;
 		if(gen_min_fitness == 0)
 		{
 			cerr<<"generation : "<<num_of_generations<<" both min & max fitness is 0"<<endl;
 		}
 
-		// set each to equal in the cum_fitness
-		T * indivP = &population[0];
-		double equal_fitness = (double) 1/POPULATION_SIZE;
+		// set each to equal in the cumulative map
+		const double equal_fitness = (double) 1.0/POPULATION_SIZE;
+		double cumulative_fitness = 0;
+
 		for(size_t i = 0; i < POPULATION_SIZE; i++)
 		{
-			cumulative_map[indivP] = equal_fitness*(i+1);
-			indivP++;
+			cumulative_fitness += equal_fitness;
+			(*cumulative_mapP)[*(population + i)] = cumulative_fitness;
 		}
 		return true;
 	}
 	else
 	{
 		// shift each fitness by min fitness, to make min fitness = 0
-		// shift total_fitness by POPULATION_SIZE*min fitness
+		// shift total_fitness by POPULATION_SIZE * min fitness
 		double total_shifted_fitness = fitness_sum - (POPULATION_SIZE*gen_min_fitness);
 
 		double shifted_fitness;
 		double relative_fitness;
 		double cum_relative_fitness = 0;
 
-		T * indivP = &population[0];
+		T * indivP;
 		for(size_t i = 0; i < POPULATION_SIZE; i++)
 		{
+			indivP = *(population + i);
+
 			// move fitness along x-axis, to shift min fitness to 0
-			shifted_fitness = fitness_map[indivP] - gen_min_fitness;
+			shifted_fitness = fitness_mapP->find(indivP)->second - gen_min_fitness;
 
 			// divide each fitness by max shifted fitness, i.e. fitnessRange
 			relative_fitness = (double) shifted_fitness/total_shifted_fitness;
 			cum_relative_fitness += relative_fitness;
-			cumulative_map[indivP] = cum_relative_fitness;
-			indivP++;
+
+			(*cumulative_mapP)[indivP] = cum_relative_fitness;
 		}
+
 		return true;
 	}
+
 }
 
 template<typename T>
@@ -520,53 +609,56 @@ typename simple_ga<T>::crossoverParents simple_ga<T>::selectCrossOverParents()
 		cerr<<"error selecting parent(s) for crossover."
 				" returning first two individuals as crossover parents."<<endl;
 		// return first two individuals from the population
-		crossoverParents.parent1 = &population[0];
-		crossoverParents.parent2 = &population[1];
+		crossoverParents.parent1 = *(population + 0);
+		crossoverParents.parent2 = *(population + 1);
 	}
 
 	return crossoverParents;
 }
 
 template<typename T>
-T * simple_ga<T>::selectAParent(const T * already_selectedP)
+T * simple_ga<T>::selectAParent(const T * const already_selectedP)
 {
 	return rouletteWheelSelection(already_selectedP);
 }
 
 template<typename T>
-T * simple_ga<T>::rouletteWheelSelection(const T * already_selectedP)
+T * simple_ga<T>::rouletteWheelSelection(const T * const already_selectedP)
 {
-	T * parent = NULL;
-	T * indivP = &population[0];
+	T * parent = NULL, * indivP;
 	double random_value = _uniform_distribution_0_1(roulette_random_engine);
-	for(size_t i = 0; i < POPULATION_SIZE; i++)
-	{
-		// first cumulative fitness that exceeds random value
-		if(cumulative_map[indivP] > random_value)
-		{
-			// select this if not already selected else
-			// find an individual with similar fitness
-			parent = indivP == already_selectedP ?
-					selectSimilarFit(indivP) : indivP;
-
-			break;
-		}
-
-		indivP++;
-	}
 
 	// if random value >= last cumulative fitness
 	// (case when random value is 1 or
 	// case when last cumulative fitness value is less than 1
 	// due to limited bit precision of mathematical operations)
-	// then do selection for the individual with last cumulative fitness
-	if(random_value >= cumulative_map[&population[POPULATION_SIZE-1]])
+	// then select the last individual
+	if(random_value >= cumulative_mapP->
+			find(*(population + POPULATION_SIZE - 1))->second)
 	{
-		indivP = &population[POPULATION_SIZE-1];
+		indivP = *(population + POPULATION_SIZE - 1);
 		// select this if not already selected else
 		// find an individual with similar fitness
 		parent = indivP == already_selectedP ?
-				selectSimilarFit(indivP) : indivP;
+			selectSimilarFit(indivP) : indivP;
+	}
+	else
+	{
+		for(size_t i = 0; i < POPULATION_SIZE; i++)
+		{
+			indivP = *(population + i);
+
+			// first cumulative fitness that exceeds random value
+			if(cumulative_mapP->find(indivP)->second > random_value)
+			{
+				// select this if not already selected else
+				// find an individual with similar fitness
+				parent = indivP == already_selectedP ?
+					selectSimilarFit(indivP) : indivP;
+
+				break;
+			}
+		}
 	}
 
 	return parent;
@@ -577,22 +669,24 @@ T * simple_ga<T>::rouletteWheelSelection(const T * already_selectedP)
  * very close to fitness of this individual
  */
 template<typename T>
-T * simple_ga<T>::selectSimilarFit(const T * indivP)
+T * simple_ga<T>::selectSimilarFit(const T * const indivP)
 {
-	double indiv_fitness = fitness_map[indivP];
+	const double indiv_fitness = fitness_mapP->find(indivP)->second;
 	// absolute fitness difference for each individual
 	double abs_fitness_diff;
 	// least absolute difference to track the closest fit individual
 	double least_abs_diff = DBL_MAX;
 	// iterate over each individual
-	T * another_indivP = &population[0];
-	T * most_similar_indivP = NULL;
+	T * most_similar_indivP = NULL, * another_indivP;
 	for(size_t j = 0; j < POPULATION_SIZE; j++)
 	{
+		another_indivP = *(population + j);
+
 		if(another_indivP != indivP)
 		{
-			abs_fitness_diff = abs(indiv_fitness - fitness_map[another_indivP]);
-			if(abs_fitness_diff < least_abs_diff)    // this fitness difference is less
+			abs_fitness_diff =
+				abs( indiv_fitness - fitness_mapP->find(another_indivP)->second );
+			if(abs_fitness_diff < least_abs_diff)    // this fitness difference is lesser
 			{
 				// this is the most similar individual known so far
 				most_similar_indivP = another_indivP;
@@ -600,7 +694,6 @@ T * simple_ga<T>::selectSimilarFit(const T * indivP)
 			}
 		}
 
-		another_indivP++;
 	}
 
 	return most_similar_indivP;
@@ -650,3 +743,4 @@ void simple_ga<T>::displayResults()
 // end of definitions
 }
 #endif /* GA_H_ */
+
